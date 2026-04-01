@@ -2,7 +2,7 @@ package storage
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -38,7 +38,10 @@ func testSetup(t *testing.T) (*zap.Logger, *mongo.Collection, func()) {
 	// 每个测试用独立的数据库, 避免并行测试互相干扰
 	dbName := fmt.Sprintf("storage_test_%s", t.Name())
 	db := client.Database(dbName)
-	coll := InitCollection(ctx, logger, db)
+	coll, err := InitCollection(ctx, logger, db)
+	if err != nil {
+		t.Fatalf("初始化 Collection 失败: %v", err)
+	}
 
 	cleanup := func() {
 		_ = db.Drop(context.Background())
@@ -840,7 +843,7 @@ func TestWriteThenRead(t *testing.T) {
 
 func TestComputeVersion(t *testing.T) {
 	value := `{"foo":"bar"}`
-	hash := md5.Sum([]byte(value))
+	hash := sha256.Sum256([]byte(value))
 	expected := hex.EncodeToString(hash[:])
 
 	got := computeVersion(value)

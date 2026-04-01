@@ -2,7 +2,7 @@ package storage
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"sort"
@@ -176,15 +176,15 @@ func writeOneObject(ctx context.Context, logger *zap.Logger, coll *mongo.Collect
 	}, nil
 }
 
-// computeVersion 计算值的 MD5 哈希作为版本号
+// computeVersion 计算值的 SHA-256 哈希作为版本号
 //
 // 参数:
 //   - value: 对象值
 //
 // 返回值:
-//   - string: 16 字节 MD5 哈希的十六进制字符串
+//   - string: 32 字节 SHA-256 哈希的十六进制字符串
 func computeVersion(value string) string {
-	hash := md5.Sum([]byte(value))
+	hash := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(hash[:])
 }
 

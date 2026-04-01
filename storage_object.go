@@ -1,8 +1,6 @@
 package storage
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"time"
 )
 
@@ -18,7 +16,7 @@ type Object struct {
 	PlayerID string `bson:"player_id" json:"player_id"`
 	// 对象的值, 存储为 JSON 字符串
 	Value string `bson:"value" json:"value"`
-	// 值的 MD5 哈希, 用于乐观锁并发控制
+	// 值的 SHA-256 哈希, 用于乐观锁并发控制
 	Version string `bson:"version" json:"version"`
 	// 创建时间
 	CreateTime time.Time `bson:"create_time" json:"create_time"`
@@ -66,13 +64,12 @@ type OpWrite struct {
 	Object *WriteObject
 }
 
-// ExpectedVersion 计算写入后的预期版本号 (值的 MD5 哈希)
+// ExpectedVersion 计算写入后的预期版本号
 //
 // 返回值:
-//   - string: 16 字节 MD5 哈希的十六进制字符串
+//   - string: 值的 SHA-256 哈希十六进制字符串
 func (op *OpWrite) ExpectedVersion() string {
-	hash := md5.Sum([]byte(op.Object.Value))
-	return hex.EncodeToString(hash[:])
+	return computeVersion(op.Object.Value)
 }
 
 // OpWrites 批量写操作, 实现 sort.Interface 保证操作顺序一致以防止死锁
