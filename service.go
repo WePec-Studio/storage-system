@@ -96,6 +96,18 @@ func (s *Store) Delete(ctx context.Context, ops OpDeletes) error {
 	return DeleteObjects(ctx, s.logger, s.coll, ops)
 }
 
+// ExecuteInTx 在事务中执行 fn, 遇到瞬时错误自动重试
+//
+// 参数:
+//   - ctx: 上下文
+//   - fn: 事务内执行的业务逻辑, 参数为绑定了 Session 的 context
+//
+// 返回值:
+//   - error: 不可重试的错误或超过重试次数后的最后一次错误
+func (s *Store) ExecuteInTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	return ExecuteInTx(ctx, s.client, fn)
+}
+
 // Close 关闭 MongoDB 连接
 //
 // 参数:

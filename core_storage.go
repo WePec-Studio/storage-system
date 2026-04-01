@@ -125,6 +125,7 @@ func writeOneObject(ctx context.Context, logger *zap.Logger, coll *mongo.Collect
 			SetReturnDocument(options.After)
 
 		var result Object
+		// WiredTiger 引擎自动对文档加意向写锁
 		err := coll.FindOneAndUpdate(ctx, filter, update, opts).Decode(&result)
 		if err != nil {
 			logger.Error("写入存储对象失败", zap.Error(err))

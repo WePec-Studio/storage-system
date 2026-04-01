@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -9,6 +10,103 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.uber.org/zap"
 )
+
+// 事务重试相关常量
+const (
+	// 事务最大重试次数
+	maxRetries = 5
+	// MongoDB 瞬时事务错误标签, 表示整个事务可以重试
+	labelTransientTransaction = "TransientTransactionError"
+	// MongoDB 提交结果未知标签, 表示仅 commit 可以重试
+	labelUnknownCommitResult = "UnknownTransactionCommitResult"
+)
+
+// labeledError 用于判断错误是否携带 MongoDB 错误标签
+type labeledError interface {
+	HasErrorLabel(string) bool
+}
+
+// hasErrorLabel 判断 err 是否携带指定的 MongoDB 错误标签
+func hasErrorLabel(err error, label string) bool {
+	var le labeledError
+	if errors.As(err, &le) {
+		return le.HasErrorLabel(label)
+	}
+	return false
+}
+
+// ExecuteInTx 在 MongoDB 事务中执行 fn, 遇到瞬时错误自动重试
+//
+// 失败时 abort 当前事务, 重新开启新事务执行 fn, 最多重试 maxRetries 次.
+// 对于 commit 阶段的 UnknownTransactionCommitResult 错误,
+// 仅重试 commit 而不重跑 fn
+//
+// 参数:
+//   - ctx: 上下文
+//   - client: MongoDB 客户端, 用于创建 Session
+//   - fn: 事务内执行的业务逻辑, 参数为绑定了 Session 的 context
+//
+// 返回值:
+//   - error: 不可重试的错误或超过重试次数后的最后一次错误
+func ExecuteInTx(ctx context.Context, client *mongo.Client, fn func(ctx context.Context) error) error {
+	session, err := client.StartSession()
+	if err != nil {
+		return err
+	}
+	defer session.EndSession(ctx)
+
+	for i := 0; i < maxRetries; i++ {
+		err = executeOnce(ctx, session, fn)
+		if err == nil {
+			return nil
+		}
+		// 操作阶段或 commit 阶段的瞬时错误, 整个事务重试
+		if hasErrorLabel(err, labelTransientTransaction) {
+			continue
+		}
+		return err
+	}
+
+	return err
+}
+
+// executeOnce 执行一次完整的事务流程: 开启事务 → 执行 fn → 提交
+//
+// commit 阶段遇到 UnknownTransactionCommitResult 时仅重试 commit,
+// 不重跑 fn
+//
+// 参数:
+//   - ctx: 上下文
+//   - session: MongoDB Session
+//   - fn: 事务内执行的业务逻辑
+//
+// 返回值:
+//   - error: 事务执行或提交过程中的错误
+func executeOnce(ctx context.Context, session *mongo.Session, fn func(ctx context.Context) error) error {
+	if err := session.StartTransaction(); err != nil {
+		return err
+	}
+
+	// 执行 fn 中的业务逻辑，数据已经写到 MongoDB 的事务缓冲区了
+	err := mongo.WithSession(ctx, session, fn)
+	if err != nil {
+		_ = session.AbortTransaction(ctx)
+		return err
+	}
+
+	for i := 0; i < maxRetries; i++ {
+		// 把操作的结果真正提交到数据库，如果失败，返回 UnknownTransactionCommitResult 仅重试 commit
+		err = session.CommitTransaction(ctx)
+		if err == nil {
+			return nil
+		}
+		if !hasErrorLabel(err, labelUnknownCommitResult) {
+			break
+		}
+	}
+
+	return err
+}
 
 // MongoConnect 建立 MongoDB 连接并验证连通性
 //
