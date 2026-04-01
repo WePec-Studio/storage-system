@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -25,7 +26,8 @@ const collectionStorage = "storage"
 //
 // 返回值:
 //   - *mongo.Collection: 初始化完成的 Collection 实例
-func InitCollection(ctx context.Context, logger *zap.Logger, db *mongo.Database) *mongo.Collection {
+//   - error: 索引创建失败时的错误
+func InitCollection(ctx context.Context, logger *zap.Logger, db *mongo.Database) (*mongo.Collection, error) {
 	coll := db.Collection(collectionStorage)
 
 	initCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -51,10 +53,10 @@ func InitCollection(ctx context.Context, logger *zap.Logger, db *mongo.Database)
 
 	_, err := coll.Indexes().CreateMany(initCtx, indexes)
 	if err != nil {
-		logger.Fatal("创建 storage 索引失败", zap.Error(err))
+		return nil, fmt.Errorf("create storage indexes: %w", err)
 	}
 
 	logger.Info("storage Collection 初始化完成", zap.Int("index_count", len(indexes)))
 
-	return coll
+	return coll, nil
 }

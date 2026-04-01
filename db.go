@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -110,8 +111,7 @@ func executeOnce(ctx context.Context, session *mongo.Session, fn func(ctx contex
 
 // MongoConnect 建立 MongoDB 连接并验证连通性
 //
-// 解析配置中的连接地址, 设置连接池参数, 执行健康检查,
-// 连接失败时直接终止进程
+// 解析配置中的连接地址, 设置连接池参数, 执行健康检查
 //
 // 参数:
 //   - ctx: 上下文, 用于控制连接超时
@@ -121,11 +121,12 @@ func executeOnce(ctx context.Context, session *mongo.Session, fn func(ctx contex
 // 返回值:
 //   - *mongo.Client: MongoDB 客户端实例
 //   - *mongo.Database: 指定的数据库实例
-func MongoConnect(ctx context.Context, logger *zap.Logger, config DatabaseConfig) (*mongo.Client, *mongo.Database) {
+//   - error: 连接或健康检查失败时的错误
+func MongoConnect(ctx context.Context, logger *zap.Logger, config DatabaseConfig) (*mongo.Client, *mongo.Database, error) {
 	// 构建连接 URI
 	uri := config.URI
 	if uri == "" {
-		logger.Fatal("数据库连接 URI 不能为空")
+		return nil, nil, errors.New("数据库连接 URI 不能为空")
 	}
 
 	// 配置客户端选项
@@ -138,7 +139,7 @@ func MongoConnect(ctx context.Context, logger *zap.Logger, config DatabaseConfig
 	// 建立连接
 	client, err := mongo.Connect(opts)
 	if err != nil {
-		logger.Fatal("MongoDB 连接失败", zap.Error(err))
+		return nil, nil, fmt.Errorf("mongodb connect: %w", err)
 	}
 
 	// 健康检查, 限制 15 秒超时
@@ -146,7 +147,7 @@ func MongoConnect(ctx context.Context, logger *zap.Logger, config DatabaseConfig
 	defer pingCancel()
 
 	if err = client.Ping(pingCtx, nil); err != nil {
-		logger.Fatal("MongoDB Ping 失败", zap.Error(err))
+		return nil, nil, fmt.Errorf("mongodb ping: %w", err)
 	}
 
 	// 获取并记录数据库版本信息
@@ -169,7 +170,7 @@ func MongoConnect(ctx context.Context, logger *zap.Logger, config DatabaseConfig
 
 	logger.Info("数据库已就绪", zap.String("database", dbName))
 
-	return client, db
+	return client, db, nil
 }
 
 // DatabaseConfig MongoDB 连接配置

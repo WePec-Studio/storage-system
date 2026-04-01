@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.uber.org/zap"
@@ -30,16 +31,24 @@ type Store struct {
 //
 // 返回值:
 //   - *Store: 存储服务实例
-func New(ctx context.Context, logger *zap.Logger, config DatabaseConfig) *Store {
-	client, db := MongoConnect(ctx, logger, config)
-	coll := InitCollection(ctx, logger, db)
+//   - error: 连接或初始化失败时的错误
+func New(ctx context.Context, logger *zap.Logger, config DatabaseConfig) (*Store, error) {
+	client, db, err := MongoConnect(ctx, logger, config)
+	if err != nil {
+		return nil, fmt.Errorf("storage new: %w", err)
+	}
+
+	coll, err := InitCollection(ctx, logger, db)
+	if err != nil {
+		return nil, fmt.Errorf("storage new: %w", err)
+	}
 
 	return &Store{
 		logger: logger,
 		client: client,
 		db:     db,
 		coll:   coll,
-	}
+	}, nil
 }
 
 // Write 批量写入存储对象
